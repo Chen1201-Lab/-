@@ -34,7 +34,7 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
 });
 
 app.listen(PORT, () => {
-    console.log(`\n🚀 凯格尔大师 Pro API Server`);
+    console.log(`\n🚀 深动 API Server`);
     console.log(`   Running on http://localhost:${PORT}`);
     console.log(`   Health check: http://localhost:${PORT}/api/health\n`);
 });

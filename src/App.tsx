@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "./api";
 import { supabase } from "./lib/supabase";
+import { getPlansForGender, TrainingPlan, PlanDay } from "./plans";
+import { getCardsForGender, getCategories } from "./education";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Play,
@@ -66,6 +68,31 @@ const BADGES = [
     desc: "完成第一次训练",
     target: 1,
     type: "workouts",
+    emoji: "🌱",
+  },
+  {
+    id: "ten_workouts",
+    name: "十全十美",
+    desc: "完成10次训练",
+    target: 10,
+    type: "workouts",
+    emoji: "🔟",
+  },
+  {
+    id: "fifty_workouts",
+    name: "半百征途",
+    desc: "完成50次训练",
+    target: 50,
+    type: "workouts",
+    emoji: "🏅",
+  },
+  {
+    id: "hundred_workouts",
+    name: "百炼成钢",
+    desc: "完成100次训练",
+    target: 100,
+    type: "workouts",
+    emoji: "💎",
   },
   {
     id: "streak_3",
@@ -73,6 +100,7 @@ const BADGES = [
     desc: "连续打卡3天",
     target: 3,
     type: "streak",
+    emoji: "🔥",
   },
   {
     id: "streak_7",
@@ -80,6 +108,23 @@ const BADGES = [
     desc: "连续打卡7天",
     target: 7,
     type: "streak",
+    emoji: "👑",
+  },
+  {
+    id: "streak_14",
+    name: "钢铁意志",
+    desc: "连续打卡14天",
+    target: 14,
+    type: "streak",
+    emoji: "⚔️",
+  },
+  {
+    id: "streak_30",
+    name: "传奇毅力",
+    desc: "连续打卡30天",
+    target: 30,
+    type: "streak",
+    emoji: "🏆",
   },
   {
     id: "master_60",
@@ -87,6 +132,7 @@ const BADGES = [
     desc: "累计训练60分钟",
     target: 60,
     type: "minutes",
+    emoji: "⏱️",
   },
   {
     id: "master_300",
@@ -94,6 +140,23 @@ const BADGES = [
     desc: "累计训练300分钟",
     target: 300,
     type: "minutes",
+    emoji: "🎯",
+  },
+  {
+    id: "master_600",
+    name: "殿堂大师",
+    desc: "累计训练600分钟",
+    target: 600,
+    type: "minutes",
+    emoji: "🌟",
+  },
+  {
+    id: "early_bird",
+    name: "早起鸟儿",
+    desc: "在早上6-8点完成训练",
+    target: 1,
+    type: "special",
+    emoji: "🐦",
   },
 ];
 
@@ -245,6 +308,21 @@ export default function App() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
+
+  // Plan State
+  const [activePlan, setActivePlan] = useState<TrainingPlan | null>(null);
+  const [planProgress, setPlanProgress] = useState<{ planId: string; currentWeek: number; currentDay: number; completedDays: string[] }>({
+    planId: "", currentWeek: 1, currentDay: 1, completedDays: [],
+  });
+  const [showPlanDetail, setShowPlanDetail] = useState(false);
+  const [expandedCard, setExpandedCard] = useState<string | null>(null);
+  const [newlyUnlockedBadge, setNewlyUnlockedBadge] = useState<typeof BADGES[0] | null>(null);
+
+  // Meditation State
+  const [meditationActive, setMeditationActive] = useState(false);
+  const [meditationTime, setMeditationTime] = useState(60); // seconds
+  const [meditationTimeLeft, setMeditationTimeLeft] = useState(0);
+  const meditationTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Workout State
   const [phase, setPhase] = useState<WorkoutPhase>("ready");
@@ -501,39 +579,101 @@ export default function App() {
     startWorkout(customProg);
   };
 
+  // Plan functions
+  const startPlan = (plan: TrainingPlan) => {
+    setActivePlan(plan);
+    const saved = localStorage.getItem(`plan_progress_${plan.id}`);
+    if (saved) {
+      setPlanProgress(JSON.parse(saved));
+    } else {
+      setPlanProgress({ planId: plan.id, currentWeek: 1, currentDay: 1, completedDays: [] });
+    }
+    setShowPlanDetail(true);
+  };
+
+  const getTodayPlanDay = (): PlanDay | null => {
+    if (!activePlan) return null;
+    const week = activePlan.weeks.find(w => w.weekNumber === planProgress.currentWeek);
+    if (!week) return null;
+    return week.days.find(d => d.dayNumber === planProgress.currentDay) || null;
+  };
+
+  const startPlanWorkout = () => {
+    if (!gender || !activePlan) return;
+    const day = getTodayPlanDay();
+    if (!day || day.isRestDay) return;
+    const planProg: Program = {
+      id: `plan_${activePlan.id}_w${planProgress.currentWeek}_d${planProgress.currentDay}`,
+      name: `${activePlan.name} · 第${planProgress.currentWeek}周 · 第${planProgress.currentDay}天`,
+      desc: activePlan.weeks[planProgress.currentWeek - 1]?.title || "",
+      icon: <Target className="w-4 h-4" />,
+      contractTime: day.contractTime,
+      restTime: day.restTime,
+      cycles: day.cycles,
+      color: activePlan.color,
+      glowColor: `${activePlan.color}66`,
+    };
+    setShowPlanDetail(false);
+    startWorkout(planProg);
+  };
+
+  const advancePlanDay = () => {
+    if (!activePlan) return;
+    const key = `w${planProgress.currentWeek}d${planProgress.currentDay}`;
+    const newCompleted = [...planProgress.completedDays, key];
+    let nextDay = planProgress.currentDay + 1;
+    let nextWeek = planProgress.currentWeek;
+    if (nextDay > 7) {
+      nextDay = 1;
+      nextWeek += 1;
+    }
+    const isPlanComplete = nextWeek > activePlan.totalWeeks;
+    const newProgress = {
+      planId: activePlan.id,
+      currentWeek: isPlanComplete ? activePlan.totalWeeks : nextWeek,
+      currentDay: isPlanComplete ? 7 : nextDay,
+      completedDays: newCompleted,
+    };
+    setPlanProgress(newProgress);
+    localStorage.setItem(`plan_progress_${activePlan.id}`, JSON.stringify(newProgress));
+  };
+
   const checkBadges = (currentStats: typeof stats) => {
     const newBadges = [...currentStats.unlockedBadges];
     let unlockedAny = false;
+    let lastUnlocked: typeof BADGES[0] | null = null;
 
     BADGES.forEach((badge) => {
       if (!newBadges.includes(badge.id)) {
         let achieved = false;
-        if (
-          badge.type === "workouts" &&
-          currentStats.workoutsCompleted >= badge.target
-        )
-          achieved = true;
-        if (badge.type === "streak" && currentStats.streak >= badge.target)
-          achieved = true;
-        if (
-          badge.type === "minutes" &&
-          currentStats.totalMinutes >= badge.target
-        )
-          achieved = true;
+        if (badge.type === "workouts" && currentStats.workoutsCompleted >= badge.target) achieved = true;
+        if (badge.type === "streak" && currentStats.streak >= badge.target) achieved = true;
+        if (badge.type === "minutes" && currentStats.totalMinutes >= badge.target) achieved = true;
+        if (badge.type === "special" && badge.id === "early_bird") {
+          const hour = new Date().getHours();
+          if (hour >= 6 && hour < 8) achieved = true;
+        }
 
         if (achieved) {
           newBadges.push(badge.id);
           unlockedAny = true;
+          lastUnlocked = badge;
         }
       }
     });
+
+    if (lastUnlocked) {
+      setNewlyUnlockedBadge(lastUnlocked);
+      setTimeout(() => setNewlyUnlockedBadge(null), 3500);
+    }
 
     return { newBadges, unlockedAny };
   };
 
   const finishWorkout = useCallback(() => {
-    if (!selectedProgram) return;
+    if (!selectedProgram || phase === "finished") return;
     setPhase("finished");
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     vibrate([100, 50, 100, 50, 200]);
     playChime("start");
 
@@ -603,7 +743,29 @@ export default function App() {
 
       return tempStats;
     });
-  }, [selectedProgram, vibrate, playChime, authSession]);
+    // Advance plan progress if this was a plan workout
+    if (selectedProgram.id.startsWith("plan_")) {
+      advancePlanDay();
+    }
+  }, [selectedProgram, vibrate, playChime, authSession, advancePlanDay]);
+
+  // Meditation Timer
+  useEffect(() => {
+    if (!meditationActive || meditationTimeLeft <= 0) return;
+    meditationTimerRef.current = setInterval(() => {
+      setMeditationTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(meditationTimerRef.current!);
+          meditationTimerRef.current = null;
+          setMeditationActive(false);
+          playChime("start");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => { if (meditationTimerRef.current) clearInterval(meditationTimerRef.current); };
+  }, [meditationActive, meditationTimeLeft, playChime]);
 
   // Workout Loop
   useEffect(() => {
@@ -850,7 +1012,7 @@ export default function App() {
           className="text-center mb-10 z-10"
         >
           <h1 className="font-serif text-3xl font-bold text-white mb-2 tracking-widest">
-            凯格尔大师 Pro
+            深动
           </h1>
           <p className="font-sans text-sm text-white/50">
             专业的盆底肌训练应用
@@ -1033,6 +1195,89 @@ export default function App() {
         className={`w-full h-[100dvh] ${theme.bgClass} flex flex-col relative overflow-hidden transition-colors duration-1000`}
       >
         {/* Atmospheric Background */}
+
+        {/* Badge Unlock Celebration */}
+        <AnimatePresence>
+          {newlyUnlockedBadge && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-md pointer-events-none"
+            >
+              {/* Floating Particles */}
+              {Array.from({ length: 20 }).map((_, i) => (
+                <motion.div
+                  key={i}
+                  className="absolute w-2 h-2 rounded-full"
+                  style={{
+                    backgroundColor: [theme.primaryColor, "#FCD34D", "#A78BFA", "#34D399", "#F472B6"][i % 5],
+                    left: `${Math.random() * 100}%`,
+                    top: `${Math.random() * 100}%`,
+                  }}
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{
+                    scale: [0, 1.5, 0],
+                    opacity: [0, 1, 0],
+                    y: [0, -100 - Math.random() * 200],
+                    x: [-50 + Math.random() * 100],
+                  }}
+                  transition={{
+                    duration: 2 + Math.random(),
+                    delay: Math.random() * 0.5,
+                    ease: "easeOut",
+                  }}
+                />
+              ))}
+
+              {/* Badge Info */}
+              <motion.div
+                initial={{ scale: 0, rotate: -15 }}
+                animate={{ scale: 1, rotate: 0 }}
+                exit={{ scale: 0 }}
+                transition={{ type: "spring", damping: 12, stiffness: 200, delay: 0.2 }}
+                className="flex flex-col items-center"
+              >
+                <motion.div
+                  className="w-24 h-24 rounded-full flex items-center justify-center mb-4 border-2"
+                  style={{
+                    backgroundColor: `${theme.primaryColor}20`,
+                    borderColor: theme.primaryColor,
+                    boxShadow: `0 0 40px ${theme.primaryColor}40, 0 0 80px ${theme.primaryColor}20`,
+                  }}
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  <span className="text-4xl">{newlyUnlockedBadge.emoji}</span>
+                </motion.div>
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="text-[10px] text-white/50 tracking-widest mb-1 uppercase"
+                >
+                  成就解锁
+                </motion.p>
+                <motion.h3
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 }}
+                  className="font-serif text-xl font-bold text-white"
+                >
+                  {newlyUnlockedBadge.name}
+                </motion.h3>
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 }}
+                  className="text-sm text-white/50 mt-1"
+                >
+                  {newlyUnlockedBadge.desc}
+                </motion.p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <motion.div
           animate={{
             y: [0, -20, 0],
@@ -1223,17 +1468,16 @@ export default function App() {
                         className={`flex-shrink-0 w-24 ${theme.glassClass} rounded-2xl p-3 flex flex-col items-center justify-center text-center gap-2 ${isUnlocked ? "" : "opacity-40 grayscale"}`}
                       >
                         <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center ${isUnlocked ? `bg-[${theme.primaryColor}]/20 text-[${theme.primaryColor}]` : "bg-white/5 text-white/30"}`}
+                          className={`w-10 h-10 rounded-full flex items-center justify-center ${isUnlocked ? "" : "bg-white/5 text-white/30"}`}
                           style={
                             isUnlocked
                               ? {
-                                color: theme.primaryColor,
                                 backgroundColor: `${theme.primaryColor}30`,
                               }
                               : {}
                           }
                         >
-                          <Award className="w-5 h-5" />
+                          <span className="text-xl">{badge.emoji}</span>
                         </div>
                         <div>
                           <div className="text-[11px] font-bold text-white/90 whitespace-nowrap">
@@ -1248,6 +1492,168 @@ export default function App() {
                   })}
                 </div>
               </div>
+
+              {/* Progressive Training Plans */}
+              {gender && (
+                <>
+                  <h2 className="font-sans text-sm font-bold text-white/80 mb-3 tracking-widest z-10 flex items-center gap-2">
+                    <Target className="w-4 h-4" style={{ color: theme.primaryColor }} />
+                    系统训练计划
+                  </h2>
+                  <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-4 z-10 -mx-1 px-1">
+                    {getPlansForGender(gender).map((plan) => {
+                      const savedProgress = localStorage.getItem(`plan_progress_${plan.id}`);
+                      const progress = savedProgress ? JSON.parse(savedProgress) : null;
+                      const totalDays = plan.totalWeeks * 7;
+                      const completedDays = progress?.completedDays?.length || 0;
+                      const progressPct = Math.round((completedDays / totalDays) * 100);
+                      return (
+                        <button
+                          key={plan.id}
+                          onClick={() => startPlan(plan)}
+                          className="flex-shrink-0 w-56 rounded-3xl p-5 flex flex-col relative overflow-hidden group hover:scale-[1.02] transition-all duration-300 active:scale-[0.98] text-left border border-white/10"
+                          style={{ background: `linear-gradient(135deg, ${plan.color}15, ${plan.color}05)` }}
+                        >
+                          <div className="absolute top-0 right-0 w-20 h-20 rounded-full blur-[40px] opacity-30 pointer-events-none" style={{ backgroundColor: plan.color }} />
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: `${plan.color}30`, color: plan.color }}>
+                              <Target className="w-4 h-4" />
+                            </div>
+                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${plan.color}20`, color: plan.color }}>
+                              {plan.duration}
+                            </span>
+                          </div>
+                          <h3 className="font-serif text-sm font-bold text-white/90 mb-1">{plan.name}</h3>
+                          <p className="text-[10px] text-white/50 leading-relaxed mb-3 line-clamp-2">{plan.description}</p>
+                          {progress && completedDays > 0 ? (
+                            <div className="mt-auto">
+                              <div className="flex justify-between text-[9px] text-white/50 mb-1">
+                                <span>进度</span>
+                                <span>{progressPct}%</span>
+                              </div>
+                              <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${progressPct}%`, backgroundColor: plan.color }} />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-auto text-[10px] font-medium" style={{ color: plan.color }}>
+                              开始计划 →
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Plan Detail Modal */}
+              <AnimatePresence>
+                {showPlanDetail && activePlan && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
+                    onClick={() => setShowPlanDetail(false)}
+                  >
+                    <motion.div
+                      initial={{ y: 50, opacity: 0, scale: 0.95 }}
+                      animate={{ y: 0, opacity: 1, scale: 1 }}
+                      exit={{ y: 50, opacity: 0, scale: 0.95 }}
+                      transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                      className={`${theme.glassClass} rounded-3xl p-6 w-full max-w-md border max-h-[85vh] overflow-y-auto`}
+                      style={{ borderColor: `${activePlan.color}30` }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <h3 className="font-serif text-lg font-bold text-white/90">{activePlan.name}</h3>
+                          <p className="text-xs text-white/50 mt-1">{activePlan.description}</p>
+                        </div>
+                        <button onClick={() => setShowPlanDetail(false)} className="p-1 text-white/50 hover:text-white">
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      {/* Weeks */}
+                      <div className="space-y-4 mb-6">
+                        {activePlan.weeks.map((week) => {
+                          const isCurrentWeek = week.weekNumber === planProgress.currentWeek;
+                          const isPastWeek = week.weekNumber < planProgress.currentWeek;
+                          return (
+                            <div key={week.weekNumber} className={`rounded-2xl p-4 ${isCurrentWeek ? "bg-white/10 border" : "bg-white/5"}`} style={isCurrentWeek ? { borderColor: `${activePlan.color}40` } : {}}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold" style={{ color: isCurrentWeek ? activePlan.color : isPastWeek ? "#9CA3AF" : "rgba(255,255,255,0.5)" }}>
+                                    第{week.weekNumber}周
+                                  </span>
+                                  <span className="text-xs text-white/70 font-medium">{week.title}</span>
+                                </div>
+                                {isPastWeek && <CheckCircle className="w-4 h-4 text-green-400" />}
+                              </div>
+                              <p className="text-[10px] text-white/40 mb-3">{week.description}</p>
+                              <div className="flex gap-1.5">
+                                {week.days.map((day) => {
+                                  const dayKey = `w${week.weekNumber}d${day.dayNumber}`;
+                                  const isCompleted = planProgress.completedDays.includes(dayKey);
+                                  const isCurrent = isCurrentWeek && day.dayNumber === planProgress.currentDay;
+                                  return (
+                                    <div
+                                      key={day.dayNumber}
+                                      className={`flex-1 h-7 rounded-lg flex items-center justify-center text-[9px] font-bold transition-all ${isCompleted ? "text-black" : isCurrent ? "border text-white" : day.isRestDay ? "bg-white/5 text-white/30" : "bg-white/5 text-white/40"
+                                        }`}
+                                      style={{
+                                        backgroundColor: isCompleted ? activePlan.color : undefined,
+                                        borderColor: isCurrent ? activePlan.color : undefined,
+                                        color: isCurrent ? activePlan.color : undefined,
+                                      }}
+                                    >
+                                      {day.isRestDay ? "休" : `D${day.dayNumber}`}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Today's workout info & Start button */}
+                      {(() => {
+                        const todayDay = getTodayPlanDay();
+                        if (!todayDay) return null;
+                        return todayDay.isRestDay ? (
+                          <div className="text-center py-4">
+                            <p className="text-white/60 text-sm mb-2">🌙 今天是休息日</p>
+                            <p className="text-white/40 text-xs">{todayDay.tip}</p>
+                            <button onClick={() => { advancePlanDay(); }} className="mt-4 px-6 py-2 rounded-xl bg-white/10 text-white/70 text-sm font-medium hover:bg-white/20 transition-colors">
+                              跳到下一天
+                            </button>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="flex items-center justify-between mb-3 px-3 py-2 bg-black/30 rounded-xl">
+                              <span className="text-xs text-white/50">今日训练</span>
+                              <span className="text-xs text-white/80">收紧 {todayDay.contractTime}s · 放松 {todayDay.restTime}s · {todayDay.cycles}组</span>
+                            </div>
+                            {todayDay.tip && (
+                              <p className="text-[10px] text-white/40 mb-3 px-1 italic">💡 {todayDay.tip}</p>
+                            )}
+                            <button
+                              onClick={startPlanWorkout}
+                              className="w-full py-3.5 rounded-xl text-white font-bold text-sm hover:opacity-90 transition-opacity shadow-lg"
+                              style={{ background: `linear-gradient(135deg, ${activePlan.color}, ${activePlan.color}CC)` }}
+                            >
+                              开始今日训练
+                            </button>
+                          </div>
+                        );
+                      })()}
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Course List */}
               <h2 className="font-sans text-sm font-bold text-white/80 mb-3 tracking-widest z-10">
@@ -1328,28 +1734,131 @@ export default function App() {
                     解锁完全自由的训练节奏，打造最适合你当前阶段的专属方案。
                   </p>
                 </button>
+
+                {/* Meditation Card */}
+                <button
+                  onClick={() => {
+                    setMeditationTimeLeft(meditationTime);
+                    setMeditationActive(true);
+                  }}
+                  className={`w-full text-left ${theme.glassClass} rounded-3xl p-4 flex flex-col relative overflow-hidden group hover:bg-white/[0.06] transition-all duration-300 active:scale-[0.98] border border-purple-500/20 mt-2`}
+                >
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-full bg-purple-500/20 text-purple-400">
+                        <Moon className="w-4 h-4" />
+                      </div>
+                      <h3 className="font-serif text-base font-bold text-white/90">
+                        冥想放松
+                      </h3>
+                    </div>
+                    <div className="flex gap-1">
+                      {[60, 120, 180].map(t => (
+                        <button
+                          key={t}
+                          onClick={(e) => { e.stopPropagation(); setMeditationTime(t); }}
+                          className={`text-[9px] px-2 py-0.5 rounded-full transition-colors ${meditationTime === t ? "bg-purple-500/30 text-purple-300" : "bg-white/5 text-white/40"}`}
+                        >
+                          {t / 60}分钟
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="font-sans text-[11px] text-white/50 leading-relaxed">
+                    训练后深呼吸放松，跟随4-4-6呼吸节奏，让身心回归平静。
+                  </p>
+                </button>
               </div>
 
-              {/* Custom Program Modal */}
+              {/* Meditation Overlay */}
+              <AnimatePresence>
+                {meditationActive && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 z-[100] flex flex-col items-center justify-center"
+                    style={{ background: "linear-gradient(180deg, #0B0B1A, #1A0B2E, #0B0B1A)" }}
+                  >
+                    {/* Close Button */}
+                    <button
+                      onClick={() => {
+                        setMeditationActive(false);
+                        if (meditationTimerRef.current) { clearInterval(meditationTimerRef.current); meditationTimerRef.current = null; }
+                      }}
+                      className="absolute top-8 right-6 p-2 rounded-full bg-white/5 text-white/50 hover:text-white z-10"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+
+                    {/* Ambient Stars */}
+                    {Array.from({ length: 30 }).map((_, i) => (
+                      <motion.div
+                        key={i}
+                        className="absolute w-1 h-1 bg-white rounded-full"
+                        style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%` }}
+                        animate={{ opacity: [0.1, 0.6, 0.1] }}
+                        transition={{ duration: 2 + Math.random() * 3, repeat: Infinity, delay: Math.random() * 2 }}
+                      />
+                    ))}
+
+                    {/* Breathing Circle */}
+                    <motion.div
+                      className="w-40 h-40 rounded-full border border-purple-400/30 flex items-center justify-center mb-8"
+                      animate={{
+                        scale: [1, 1.5, 1.5, 1],
+                        borderColor: ["rgba(192,132,252,0.3)", "rgba(192,132,252,0.6)", "rgba(192,132,252,0.6)", "rgba(192,132,252,0.3)"],
+                        boxShadow: [
+                          "0 0 20px rgba(192,132,252,0.1)",
+                          "0 0 60px rgba(192,132,252,0.3)",
+                          "0 0 60px rgba(192,132,252,0.3)",
+                          "0 0 20px rgba(192,132,252,0.1)",
+                        ],
+                      }}
+                      transition={{ duration: 14, repeat: Infinity, times: [0, 0.286, 0.571, 1], ease: "easeInOut" }}
+                    >
+                      <motion.span
+                        className="text-sm text-purple-300/80 font-sans tracking-widest"
+                        animate={{ opacity: [0.5, 1, 1, 0.5] }}
+                        transition={{ duration: 14, repeat: Infinity, times: [0, 0.286, 0.571, 1] }}
+                      >
+                        {(() => {
+                          const cycle = 14; // 4s inhale + 4s hold + 6s exhale
+                          const t = (Date.now() / 1000) % cycle;
+                          if (t < 4) return "吸气";
+                          if (t < 8) return "屏息";
+                          return "呼气";
+                        })()}
+                      </motion.span>
+                    </motion.div>
+
+                    {/* Timer */}
+                    <span className="text-3xl font-light text-white/80 tabular-nums mb-2">
+                      {Math.floor(meditationTimeLeft / 60)}:{String(meditationTimeLeft % 60).padStart(2, "0")}
+                    </span>
+                    <p className="text-xs text-white/30 tracking-widest">冥想放松</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <AnimatePresence>
                 {showCustomModal && (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="absolute inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm p-4 pb-8"
+                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
                     onClick={() => setShowCustomModal(false)}
                   >
                     <motion.div
-                      initial={{ y: "100%" }}
-                      animate={{ y: 0 }}
-                      exit={{ y: "100%" }}
+                      initial={{ y: 50, opacity: 0, scale: 0.95 }}
+                      animate={{ y: 0, opacity: 1, scale: 1 }}
+                      exit={{ y: 50, opacity: 0, scale: 0.95 }}
                       transition={{
                         type: "spring",
                         damping: 25,
                         stiffness: 200,
                       }}
-                      className={`${theme.glassClass} rounded-t-3xl rounded-b-xl p-6 w-full max-w-md border-t border-amber-500/30`}
+                      className={`${theme.glassClass} rounded-3xl p-6 w-full max-w-md border border-amber-500/30 max-h-[90vh] overflow-y-auto`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div className="flex justify-between items-center mb-6">
@@ -1465,6 +1974,85 @@ export default function App() {
               transition={{ duration: 0.3, ease: "easeInOut" }}
               className="flex-1 overflow-y-auto hide-scrollbar p-6 pb-24 z-10"
             >
+              {/* Weekly Report Card */}
+              {(() => {
+                const now = new Date();
+                const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay(); // Mon=1, Sun=7
+                const weekStart = new Date(now);
+                weekStart.setDate(now.getDate() - dayOfWeek + 1);
+                const weekDays = Array.from({ length: 7 }, (_, i) => {
+                  const d = new Date(weekStart);
+                  d.setDate(weekStart.getDate() + i);
+                  return d;
+                });
+                const weekLabels = ["一", "二", "三", "四", "五", "六", "日"];
+                const activeDaysThisWeek = weekDays.filter(d => stats.history.includes(d.toDateString())).length;
+                const completionRate = Math.round((activeDaysThisWeek / 7) * 100);
+
+                return (
+                  <div className={`${theme.glassClass} rounded-3xl p-5 mb-6 relative overflow-hidden`}>
+                    <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-[60px] opacity-20 pointer-events-none" style={{ backgroundColor: theme.primaryColor }} />
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-serif text-base font-bold text-white/90 flex items-center gap-2">
+                        📊 本周报告
+                      </h3>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-white/50">
+                        {weekStart.getMonth() + 1}月{weekStart.getDate()}日 - {weekDays[6].getMonth() + 1}月{weekDays[6].getDate()}日
+                      </span>
+                    </div>
+
+                    {/* Week Activity Bar Chart */}
+                    <div className="flex items-end gap-2 h-20 mb-4">
+                      {weekDays.map((d, i) => {
+                        const isActive = stats.history.includes(d.toDateString());
+                        const isToday = d.toDateString() === now.toDateString();
+                        const isFuture = d > now;
+                        return (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                            <div
+                              className={`w-full rounded-lg transition-all duration-500 ${isActive ? "" : isFuture ? "bg-white/5" : "bg-white/10"
+                                }`}
+                              style={{
+                                height: isActive ? "100%" : isFuture ? "20%" : "30%",
+                                backgroundColor: isActive ? theme.primaryColor : undefined,
+                                boxShadow: isActive ? `0 0 10px ${theme.primaryColor}50` : undefined,
+                              }}
+                            />
+                            <span className={`text-[9px] font-bold ${isToday ? "text-white" : "text-white/40"}`}>
+                              {weekLabels[i]}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Stats Row */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-black/20 rounded-xl p-3 text-center">
+                        <div className="text-lg font-bold text-white">{activeDaysThisWeek}<span className="text-[10px] text-white/40">/7</span></div>
+                        <div className="text-[9px] text-white/40">训练天数</div>
+                      </div>
+                      <div className="bg-black/20 rounded-xl p-3 text-center">
+                        <div className="text-lg font-bold text-white">{stats.streak}</div>
+                        <div className="text-[9px] text-white/40">连续打卡</div>
+                      </div>
+                      <div className="bg-black/20 rounded-xl p-3 text-center">
+                        <div className="text-lg font-bold text-white">{Math.round(stats.totalMinutes)}</div>
+                        <div className="text-[9px] text-white/40">累计分钟</div>
+                      </div>
+                    </div>
+
+                    {/* Encouragement */}
+                    <p className="text-[10px] text-white/40 mt-3 text-center italic">
+                      {completionRate >= 80 ? "🌟 本周表现太棒了！继续保持！" :
+                        completionRate >= 50 ? "💪 本周进展不错，再坚持一下！" :
+                          completionRate > 0 ? "🌱 良好的开始，试试每天训练吧！" :
+                            "✨ 新的一周，从今天开始训练吧！"}
+                    </p>
+                  </div>
+                );
+              })()}
+
               <h2 className="font-serif text-2xl font-bold text-white/90 mb-6">
                 打卡日历
               </h2>
@@ -1737,6 +2325,56 @@ export default function App() {
               <h3 className="font-sans text-sm font-bold text-white/80 mb-3 tracking-widest">
                 设置
               </h3>
+              {/* Knowledge Cards */}
+              {gender && (
+                <div className="mb-6">
+                  <h3 className="font-serif text-lg font-bold text-white/90 mb-4 flex items-center gap-2">
+                    📚 健康知识
+                  </h3>
+                  {getCategories(gender).map((category) => (
+                    <div key={category} className="mb-4">
+                      <p className="text-[10px] text-white/40 font-bold tracking-widest mb-2 uppercase">{category}</p>
+                      <div className="flex flex-col gap-2">
+                        {getCardsForGender(gender).filter(c => c.category === category).map((card) => (
+                          <div key={card.id} className={`${theme.glassClass} rounded-2xl overflow-hidden transition-all duration-300`}>
+                            <button
+                              onClick={() => setExpandedCard(expandedCard === card.id ? null : card.id)}
+                              className="w-full text-left p-4 flex items-center justify-between hover:bg-white/5 transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="text-lg">{card.icon}</span>
+                                <span className="font-sans text-sm text-white/80 font-medium">{card.title}</span>
+                              </div>
+                              <ChevronRight className={`w-4 h-4 text-white/30 transition-transform duration-300 ${expandedCard === card.id ? "rotate-90" : ""}`} />
+                            </button>
+                            <AnimatePresence>
+                              {expandedCard === card.id && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: "auto", opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.3, ease: "easeInOut" }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="px-4 pb-4 pt-1 space-y-2 border-t border-white/5">
+                                    {card.content.map((text, i) => (
+                                      <p key={i} className="text-xs text-white/60 leading-relaxed pl-8">
+                                        {text}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Settings */}
               <div
                 className={`${theme.glassClass} rounded-3xl p-2 flex flex-col mb-6`}
               >
@@ -1816,6 +2454,17 @@ export default function App() {
                   <span className="font-sans text-sm">重新选择性别偏好</span>
                 </button>
 
+                <a
+                  href="/privacy.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full text-left p-4 flex items-center gap-3 text-white/80 hover:bg-white/5 transition-colors rounded-xl border-b border-white/5"
+                >
+                  <Shield className="w-5 h-5 text-white/40" />
+                  <span className="font-sans text-sm">隐私政策</span>
+                  <ChevronRight className="w-4 h-4 text-white/30 ml-auto" />
+                </a>
+
                 <button
                   onClick={handleLogout}
                   className="w-full text-left p-4 flex items-center gap-3 text-rose-400 hover:bg-rose-500/10 transition-colors rounded-xl"
@@ -1869,15 +2518,15 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 flex items-end justify-center bg-black/80 backdrop-blur-sm p-4 pb-8"
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
               onClick={() => setShowLevelModal(false)}
             >
               <motion.div
-                initial={{ y: "100%" }}
-                animate={{ y: 0 }}
-                exit={{ y: "100%" }}
+                initial={{ y: 50, opacity: 0, scale: 0.95 }}
+                animate={{ y: 0, opacity: 1, scale: 1 }}
+                exit={{ y: 50, opacity: 0, scale: 0.95 }}
                 transition={{ type: "spring", damping: 25, stiffness: 200 }}
-                className={`${theme.glassClass} rounded-t-3xl rounded-b-xl p-6 w-full max-w-md border-t border-amber-500/30`}
+                className={`${theme.glassClass} rounded-3xl p-6 w-full max-w-md border border-amber-500/30 max-h-[90vh] overflow-y-auto`}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="flex justify-between items-center mb-6">
@@ -1937,7 +2586,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-6"
+              className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/90 backdrop-blur-md p-6"
               onClick={() => setShowShareModal(false)}
             >
               <motion.div
@@ -2110,7 +2759,7 @@ export default function App() {
           <ChevronLeft className="w-5 h-5" />
         </button>
         <span className="font-sans text-xs font-medium tracking-widest text-white/40 uppercase">
-          {currentCycle} / {selectedProgram?.cycles}
+          {Math.min(currentCycle, selectedProgram?.cycles || 0)} / {selectedProgram?.cycles}
         </span>
         <button
           onClick={() => setDiscreetMode(true)}
@@ -2121,7 +2770,7 @@ export default function App() {
       </div>
 
       {/* Main Visualizer */}
-      <div className="relative w-80 h-80 flex items-center justify-center z-10">
+      <div className={`relative flex items-center justify-center z-10 ${phase === "finished" ? "w-full max-w-md px-6" : "w-80 h-80"}`}>
         {phase !== "finished" && selectedProgram ? (
           <>
             {/* Organic Glowing Blob */}
@@ -2163,6 +2812,40 @@ export default function App() {
               }}
             />
 
+            {/* Breathing Guide Ring */}
+            <motion.div
+              className="absolute rounded-full pointer-events-none"
+              style={{
+                border: `2px dashed ${selectedProgram.color}40`,
+              }}
+              animate={{
+                width: phase === "contract" ? "240px" : "160px",
+                height: phase === "contract" ? "240px" : "160px",
+                opacity: phase === "ready" ? 0 : [0.3, 0.7, 0.3],
+                rotate: 360,
+              }}
+              transition={{
+                width: {
+                  duration: phase === "contract" ? selectedProgram.contractTime : selectedProgram.restTime,
+                  ease: "easeInOut",
+                },
+                height: {
+                  duration: phase === "contract" ? selectedProgram.contractTime : selectedProgram.restTime,
+                  ease: "easeInOut",
+                },
+                opacity: {
+                  duration: 3,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                },
+                rotate: {
+                  duration: 20,
+                  repeat: Infinity,
+                  ease: "linear",
+                },
+              }}
+            />
+
             {/* Text Overlay */}
             <div className="absolute flex flex-col items-center pointer-events-none">
               <span className="font-serif text-3xl font-bold tracking-widest text-white mb-1 drop-shadow-md">
@@ -2175,6 +2858,18 @@ export default function App() {
               <span className="font-sans text-4xl font-light text-white/90 tabular-nums drop-shadow-md">
                 {timeLeft}
               </span>
+              {/* Breathing text cue */}
+              {phase !== "ready" && (
+                <motion.span
+                  key={phase}
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="font-sans text-[11px] mt-2 tracking-wider"
+                  style={{ color: `${selectedProgram.color}99` }}
+                >
+                  {phase === "contract" ? "吸气 ↑" : "呼气 ↓"}
+                </motion.span>
+              )}
             </div>
           </>
         ) : (
@@ -2186,10 +2881,10 @@ export default function App() {
             <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mb-6">
               <CheckCircle className="w-10 h-10 text-white/80" />
             </div>
-            <h2 className="font-serif text-3xl font-bold text-white/90 mb-2">
+            <h2 className="font-serif text-3xl font-bold text-white/90 mb-2 whitespace-nowrap">
               训练完成
             </h2>
-            <p className="font-sans text-sm text-white/50 mb-8">
+            <p className="font-sans text-sm text-white/50 mb-8 whitespace-nowrap">
               感谢你今天为自己腾出时间
             </p>
             <div className="flex gap-4">

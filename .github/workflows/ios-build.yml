@@ -1,0 +1,63 @@
+name: Build iOS App (Unsigned)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  build_ios:
+    name: Build iOS App
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install JS Dependencies
+        run: npm ci || npm install
+
+      - name: Build Web Assets (React/Vite)
+        run: npm run build
+
+      - name: Sync Capacitor to iOS
+        run: npx cap sync ios
+
+      - name: Install iOS Dependencies (CocoaPods)
+        run: |
+          cd ios/App
+          pod install
+
+      - name: Build iOS App (Unsigned Simulator Build)
+        run: |
+          cd ios/App
+          # 这是针对模拟器架构(x86_64/arm64)或者未签名构建以验证通过编译
+          # CODE_SIGNING_ALLOWED=NO 禁用代码签名
+          xcodebuild build \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphonesimulator \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            -derivedDataPath build
+
+      - name: Package App for Download
+        run: |
+          cd ios/App/build/Build/Products/Release-iphonesimulator
+          # 将生成的 App 打包成 zip
+          zip -r App.app.zip App.app
+
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kegel-master-pro-ios-unsigned
+          path: ios/App/build/Build/Products/Release-iphonesimulator/App.app.zip
+          retention-days: 7
