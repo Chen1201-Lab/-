@@ -12,9 +12,56 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* iOS Experience Optimizations */
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Allow text selection only where explicitly needed */
+.selectable {
+  user-select: auto;
+  -webkit-user-select: auto;
 }
 
 @layer utilities {
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .min-h-safe {
+    min-height: calc(100vh - env(safe-area-inset-bottom) - env(safe-area-inset-top));
+  }
+
+  .glass-panel-ios26 {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 10px 40px -10px rgba(0, 0, 0, 0.5);
+    border-radius: 2.5rem;
+    /* Hyper Squarcle */
+  }
+
+  .ambient-glow {
+    position: absolute;
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.15;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Keep legacy panels for fallback if needed, or replace */
   .glass-panel-rose {
     background: rgba(255, 228, 230, 0.03);
     backdrop-filter: blur(24px);
@@ -44,10 +91,11 @@ body {
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
-  
+
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
   }
+
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -60,9 +108,163 @@ body {
   }
 
   @keyframes morph {
-    0% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
-    34% { border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%; }
-    67% { border-radius: 50% 60% 30% 70% / 60% 40% 70% 40%; }
-    100% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+    0% {
+      border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+    }
+
+    34% {
+      border-radius: 70% 30% 50% 50% / 30% 30% 70% 70%;
+    }
+
+    67% {
+      border-radius: 50% 60% 30% 70% / 60% 40% 70% 40%;
+    }
+
+    100% {
+      border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+    }
+  }
+
+  /* --- Magic Light Mode Overrides for Hardcoded Dark Mode Tailwind Utilities --- */
+  .light-mode * {
+    /* If an element has text-white but no override, make it dark in light mode as a fallback */
+  }
+
+  .light-mode.light-mode * {
+    --tw-text-opacity: 1;
+  }
+
+  /* Force strong specificity for text colors */
+  :root .light-mode.light-mode .text-white,
+  :root .light-mode.light-mode .lm-text {
+    color: #1e293b !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/90,
+  :root .light-mode.light-mode .lm-text-90 {
+    color: rgba(30, 41, 59, 0.9) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/80,
+  :root .light-mode.light-mode .lm-text-80,
+  :root .light-mode.light-mode .text-gray-200 {
+    color: rgba(30, 41, 59, 0.8) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/70,
+  :root .light-mode.light-mode .lm-text-70,
+  :root .light-mode.light-mode .text-gray-300 {
+    color: rgba(30, 41, 59, 0.7) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/60,
+  :root .light-mode.light-mode .lm-text-60,
+  :root .light-mode.light-mode .text-gray-400 {
+    color: rgba(30, 41, 59, 0.6) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/50,
+  :root .light-mode.light-mode .lm-text-50,
+  :root .light-mode.light-mode .text-gray-500 {
+    color: rgba(30, 41, 59, 0.5) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/40,
+  :root .light-mode.light-mode .lm-text-40 {
+    color: rgba(30, 41, 59, 0.4) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/30,
+  :root .light-mode.light-mode .lm-text-30 {
+    color: rgba(30, 41, 59, 0.3) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/20,
+  :root .light-mode.light-mode .lm-text-20 {
+    color: rgba(30, 41, 59, 0.2) !important;
+  }
+
+  :root .light-mode.light-mode .text-white\/10,
+  :root .light-mode.light-mode .lm-text-10 {
+    color: rgba(30, 41, 59, 0.1) !important;
+  }
+
+  /* Background Overrides */
+  .light-mode.light-mode .bg-black,
+  .light-mode.light-mode .bg-gray-950,
+  .light-mode.light-mode .lm-bg {
+    background-color: transparent !important;
+  }
+
+  .light-mode.light-mode .bg-black\/20,
+  .light-mode.light-mode .lm-bg-20 {
+    background-color: rgba(255, 255, 255, 0.4) !important;
+  }
+
+  .light-mode.light-mode .bg-black\/40,
+  .light-mode.light-mode .lm-bg-40 {
+    background-color: rgba(255, 255, 255, 0.6) !important;
+  }
+
+  .light-mode.light-mode .bg-black\/60,
+  .light-mode.light-mode .lm-bg-60 {
+    background-color: rgba(255, 255, 255, 0.7) !important;
+  }
+
+  .light-mode.light-mode .bg-black\/80,
+  .light-mode.light-mode .lm-bg-80 {
+    background-color: rgba(255, 255, 255, 0.85) !important;
+  }
+
+  .light-mode.light-mode .bg-gray-900 {
+    background-color: rgba(255, 255, 255, 0.5) !important;
+  }
+
+  .light-mode.light-mode .bg-gray-800 {
+    background-color: rgba(255, 255, 255, 0.8) !important;
+  }
+
+  /* Inverted translucency */
+  .light-mode.light-mode .bg-white\/5,
+  .light-mode.light-mode .lm-bg-w-5 {
+    background-color: rgba(0, 0, 0, 0.03) !important;
+  }
+
+  .light-mode.light-mode .bg-white\/10,
+  .light-mode.light-mode .lm-bg-w-10 {
+    background-color: rgba(0, 0, 0, 0.06) !important;
+  }
+
+  .light-mode.light-mode .bg-white\/20,
+  .light-mode.light-mode .lm-bg-w-20 {
+    background-color: rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .light-mode.light-mode .bg-white\/30,
+  .light-mode.light-mode .lm-bg-w-30 {
+    background-color: rgba(0, 0, 0, 0.15) !important;
+  }
+
+  /* Borders */
+  .light-mode.light-mode .border-white\/5,
+  .light-mode.light-mode .lm-border-w-5 {
+    border-color: rgba(0, 0, 0, 0.05) !important;
+  }
+
+  .light-mode.light-mode .border-white\/10,
+  .light-mode.light-mode .lm-border-w-10,
+  .light-mode.light-mode .border-gray-800 {
+    border-color: rgba(0, 0, 0, 0.1) !important;
+  }
+
+  .light-mode.light-mode .border-white\/20,
+  .light-mode.light-mode .lm-border-w-20,
+  .light-mode.light-mode .border-gray-700 {
+    border-color: rgba(0, 0, 0, 0.15) !important;
+  }
+
+  .light-mode.light-mode .border-white\/30,
+  .light-mode.light-mode .lm-border-w-30 {
+    border-color: rgba(0, 0, 0, 0.25) !important;
   }
 }

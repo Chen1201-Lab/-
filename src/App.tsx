@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from "react";
 import * as api from "./api";
 import { supabase } from "./lib/supabase";
-import { getPlansForGender, TrainingPlan, PlanDay } from "./plans";
+import { getPlansForGender, type TrainingPlan, type PlanDay } from "./plans";
 import { getCardsForGender, getCategories } from "./education";
+import { BADGES, THEMES } from "./constants";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Play,
@@ -11,14 +12,10 @@ import {
   Vibrate,
   Activity,
   CheckCircle,
-  Heart,
   ChevronLeft,
   Lock,
   Bell,
-  Sparkles,
-  Droplets,
   Shield,
-  Zap,
   User,
   Users,
   Crown,
@@ -52,7 +49,7 @@ interface Program {
   id: string;
   name: string;
   desc: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   contractTime: number; // seconds
   restTime: number; // seconds
   cycles: number; // total reps
@@ -61,237 +58,31 @@ interface Program {
   isPro?: boolean;
 }
 
-const BADGES = [
-  {
-    id: "first_step",
-    name: "初次觉醒",
-    desc: "完成第一次训练",
-    target: 1,
-    type: "workouts",
-    emoji: "🌱",
-  },
-  {
-    id: "ten_workouts",
-    name: "十全十美",
-    desc: "完成10次训练",
-    target: 10,
-    type: "workouts",
-    emoji: "🔟",
-  },
-  {
-    id: "fifty_workouts",
-    name: "半百征途",
-    desc: "完成50次训练",
-    target: 50,
-    type: "workouts",
-    emoji: "🏅",
-  },
-  {
-    id: "hundred_workouts",
-    name: "百炼成钢",
-    desc: "完成100次训练",
-    target: 100,
-    type: "workouts",
-    emoji: "💎",
-  },
-  {
-    id: "streak_3",
-    name: "三日之约",
-    desc: "连续打卡3天",
-    target: 3,
-    type: "streak",
-    emoji: "🔥",
-  },
-  {
-    id: "streak_7",
-    name: "自律王者",
-    desc: "连续打卡7天",
-    target: 7,
-    type: "streak",
-    emoji: "👑",
-  },
-  {
-    id: "streak_14",
-    name: "钢铁意志",
-    desc: "连续打卡14天",
-    target: 14,
-    type: "streak",
-    emoji: "⚔️",
-  },
-  {
-    id: "streak_30",
-    name: "传奇毅力",
-    desc: "连续打卡30天",
-    target: 30,
-    type: "streak",
-    emoji: "🏆",
-  },
-  {
-    id: "master_60",
-    name: "渐入佳境",
-    desc: "累计训练60分钟",
-    target: 60,
-    type: "minutes",
-    emoji: "⏱️",
-  },
-  {
-    id: "master_300",
-    name: "核心掌控",
-    desc: "累计训练300分钟",
-    target: 300,
-    type: "minutes",
-    emoji: "🎯",
-  },
-  {
-    id: "master_600",
-    name: "殿堂大师",
-    desc: "累计训练600分钟",
-    target: 600,
-    type: "minutes",
-    emoji: "🌟",
-  },
-  {
-    id: "early_bird",
-    name: "早起鸟儿",
-    desc: "在早上6-8点完成训练",
-    target: 1,
-    type: "special",
-    emoji: "🐦",
-  },
-];
+// BADGES and THEMES are imported from constants.tsx (single source of truth)
 
-const THEMES = {
-  female: {
-    title: "Secret Garden",
-    subtitle: "你的私密健康花园",
-    bgClass: "bg-[#120E15]",
-    gradientClass: "text-gradient-rose",
-    glassClass: "glass-panel-rose",
-    blob1: "bg-rose-900/20",
-    blob2: "bg-purple-900/20",
-    primaryColor: "#FDA4AF",
-    ringColor: "#E11D48",
-    programs: [
-      {
-        id: "daily",
-        name: "日常唤醒保养",
-        desc: "每天3分钟，预防松弛，保持私密年轻态。",
-        icon: <Sparkles className="w-4 h-4" />,
-        contractTime: 3,
-        restTime: 3,
-        cycles: 10,
-        color: "#FBCFE8",
-        glowColor: "rgba(244, 114, 182, 0.4)",
-      },
-      {
-        id: "tighten",
-        name: "紧致提升进阶",
-        desc: "强化盆底肌群，提升伴侣亲密体验与自我掌控感。",
-        icon: <Heart className="w-4 h-4" />,
-        contractTime: 5,
-        restTime: 5,
-        cycles: 15,
-        color: "#E9D5FF",
-        glowColor: "rgba(192, 132, 252, 0.4)",
-      },
-      {
-        id: "postpartum",
-        name: "产后温和修复",
-        desc: "专为产后妈妈设计，加长放松时间，改善漏尿尴尬。",
-        icon: <Droplets className="w-4 h-4" />,
-        contractTime: 4,
-        restTime: 6,
-        cycles: 12,
-        color: "#BAE6FD",
-        glowColor: "rgba(56, 189, 248, 0.4)",
-      },
-    ],
-    guidance: {
-      ready: ["深呼吸，放松全身...", "找到会阴处微微收紧的感觉..."],
-      contract: [
-        "向上提拉，像憋尿一样...",
-        "保持住，不要憋气...",
-        "感受盆底肌的收缩...",
-      ],
-      rest: [
-        "彻底放松，感受血液回流...",
-        "深吸气，让肌肉完全休息...",
-        "不要有任何紧绷感...",
-      ],
-    },
-    tipTitle: "如何找到盆底肌？",
-    tipContent: [
-      "1. 想象正在憋尿：尝试在排尿中途突然停止，那一瞬间收紧的肌肉就是盆底肌。（注意：仅用于寻找感觉，不要经常在排尿时练习）。",
-      "2. 想象阻止排气：收紧肛门周围的肌肉，就像在公共场合试图憋住放屁一样。",
-      "3. 避免错误发力：练习时，你的大腿、臀部和腹部应该是放松的。如果肚子紧绷，说明发力错误。",
-    ],
-  },
-  male: {
-    title: "Deep Control",
-    subtitle: "男性的核心掌控引擎",
-    bgClass: "bg-[#0B1120]",
-    gradientClass: "text-gradient-ocean",
-    glassClass: "glass-panel-ocean",
-    blob1: "bg-cyan-900/20",
-    blob2: "bg-blue-900/20",
-    primaryColor: "#7DD3FC",
-    ringColor: "#0284C7",
-    programs: [
-      {
-        id: "m_daily",
-        name: "基础唤醒控制",
-        desc: "激活盆底肌群，建立神经连接，找回发力感。",
-        icon: <Shield className="w-4 h-4" />,
-        contractTime: 3,
-        restTime: 3,
-        cycles: 10,
-        color: "#BAE6FD",
-        glowColor: "rgba(56, 189, 248, 0.4)",
-      },
-      {
-        id: "m_stamina",
-        name: "持久力强化进阶",
-        desc: "提升肌肉耐力与爆发力，增强核心掌控与自信。",
-        icon: <Zap className="w-4 h-4" />,
-        contractTime: 5,
-        restTime: 5,
-        cycles: 15,
-        color: "#93C5FD",
-        glowColor: "rgba(59, 130, 246, 0.4)",
-      },
-      {
-        id: "m_health",
-        name: "前列腺健康保养",
-        desc: "促进局部血液循环，预防久坐带来的健康隐患。",
-        icon: <Activity className="w-4 h-4" />,
-        contractTime: 4,
-        restTime: 6,
-        cycles: 12,
-        color: "#A7F3D0",
-        glowColor: "rgba(16, 185, 129, 0.4)",
-      },
-    ],
-    guidance: {
-      ready: ["深呼吸，放松腹部...", "准备激活核心底盘..."],
-      contract: [
-        "收紧会阴，像中断排尿一样...",
-        "保持力量，自然呼吸...",
-        "感受底部的向上提拉...",
-      ],
-      rest: [
-        "完全释放，感受血液涌入...",
-        "深吸气，让肌肉恢复活力...",
-        "彻底放松，不要紧绷...",
-      ],
-    },
-    tipTitle: "如何找到盆底肌？(男性)",
-    tipContent: [
-      "1. 想象中断排尿：在排尿时尝试突然停止水流，此时发力的肌肉群就是盆底肌。（注意：仅用于初期寻找感觉，切勿频繁在排尿时练习）。",
-      "2. 想象阻止排气：收紧肛门括约肌，就像试图憋住放屁一样，同时感觉阴茎根部有轻微的向内回缩感。",
-      "3. 避免代偿发力：练习时，你的腹肌、大腿和臀部肌肉应该是放松的。如果肚子明显用力，说明发力位置不对。",
-    ],
-  },
-};
+/** Shared utility: update streak and history based on a new activity date */
+function updateStreakAndHistory(
+  prev: { streak: number; lastWorkout: string; history: string[] },
+  todayStr: string,
+) {
+  let newStreak = prev.streak;
+  let newHistory = [...(prev.history || [])];
+
+  if (prev.lastWorkout !== todayStr) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (prev.lastWorkout === yesterday.toDateString()) {
+      newStreak += 1;
+    } else {
+      newStreak = 1;
+    }
+    if (!newHistory.includes(todayStr)) {
+      newHistory.push(todayStr);
+    }
+  }
+
+  return { newStreak, newHistory };
+}
 
 // --- Main App ---
 export default function App() {
@@ -407,8 +198,31 @@ export default function App() {
       setDailyGoal(statsData.daily_goal ?? 5);
     } catch (err) {
       console.error("Failed to load user data:", err);
-      // Fallback: still go to onboarding so user isn't stuck on black screen
-      setCurrentScreen("onboarding");
+      // Fallback: load from localStorage so users still see their progress offline
+      const savedStats = localStorage.getItem("kegel_stats_v4");
+      if (savedStats) {
+        try {
+          const parsed = JSON.parse(savedStats);
+          const todayStr = new Date().toDateString();
+          setStats({
+            streak: parsed.streak || 0,
+            totalMinutes: parsed.totalMinutes || 0,
+            todayMinutes: parsed.lastActiveDate === todayStr ? (parsed.todayMinutes || 0) : 0,
+            lastWorkout: parsed.lastWorkout || "",
+            lastActiveDate: parsed.lastActiveDate || "",
+            unlockedBadges: parsed.unlockedBadges || [],
+            workoutsCompleted: parsed.workoutsCompleted || 0,
+            history: parsed.history || [],
+          });
+        } catch { /* ignore parse errors */ }
+      }
+      const savedGender = localStorage.getItem("kegel_gender") as Gender | null;
+      if (savedGender) {
+        setGender(savedGender);
+        setCurrentScreen("home");
+      } else {
+        setCurrentScreen("onboarding");
+      }
     }
   }, []);
 
@@ -461,6 +275,11 @@ export default function App() {
     if (authSession) {
       api.updateUserProfile({ gender: selected }).catch(err => console.error('Failed to save gender:', err));
     }
+  };
+
+  // Guest / local-only mode: skip auth and use app with localStorage only
+  const handleGuestMode = () => {
+    setCurrentScreen("onboarding");
   };
 
   // Wake lock
@@ -617,7 +436,7 @@ export default function App() {
     startWorkout(planProg);
   };
 
-  const advancePlanDay = () => {
+  const advancePlanDay = useCallback(() => {
     if (!activePlan) return;
     const key = `w${planProgress.currentWeek}d${planProgress.currentDay}`;
     const newCompleted = [...planProgress.completedDays, key];
@@ -636,11 +455,11 @@ export default function App() {
     };
     setPlanProgress(newProgress);
     localStorage.setItem(`plan_progress_${activePlan.id}`, JSON.stringify(newProgress));
-  };
+  }, [activePlan, planProgress]);
 
-  const checkBadges = (currentStats: typeof stats) => {
+  // Pure function: checks badges without side effects (no setState inside)
+  const checkBadges = useCallback((currentStats: typeof stats) => {
     const newBadges = [...currentStats.unlockedBadges];
-    let unlockedAny = false;
     let lastUnlocked: typeof BADGES[0] | null = null;
 
     BADGES.forEach((badge) => {
@@ -656,19 +475,13 @@ export default function App() {
 
         if (achieved) {
           newBadges.push(badge.id);
-          unlockedAny = true;
           lastUnlocked = badge;
         }
       }
     });
 
-    if (lastUnlocked) {
-      setNewlyUnlockedBadge(lastUnlocked);
-      setTimeout(() => setNewlyUnlockedBadge(null), 3500);
-    }
-
-    return { newBadges, unlockedAny };
-  };
+    return { newBadges, lastUnlocked };
+  }, []);
 
   const finishWorkout = useCallback(() => {
     if (!selectedProgram || phase === "finished") return;
@@ -679,21 +492,7 @@ export default function App() {
 
     const today = new Date().toDateString();
     setStats((prev) => {
-      let newStreak = prev.streak;
-      let newHistory = [...(prev.history || [])];
-
-      if (prev.lastWorkout !== today) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        if (prev.lastWorkout === yesterday.toDateString()) {
-          newStreak += 1;
-        } else if (prev.lastWorkout !== today) {
-          newStreak = 1;
-        }
-        if (!newHistory.includes(today)) {
-          newHistory.push(today);
-        }
-      }
+      const { newStreak, newHistory } = updateStreakAndHistory(prev, today);
 
       const sessionMinutes =
         ((selectedProgram.contractTime + selectedProgram.restTime) *
@@ -713,10 +512,18 @@ export default function App() {
         workoutsCompleted: prev.workoutsCompleted + 1,
       };
 
-      const { newBadges } = checkBadges(tempStats);
+      const { newBadges, lastUnlocked } = checkBadges(tempStats);
       tempStats.unlockedBadges = newBadges;
 
       localStorage.setItem("kegel_stats_v4", JSON.stringify(tempStats));
+
+      // Show badge celebration outside of setState (via microtask)
+      if (lastUnlocked) {
+        queueMicrotask(() => {
+          setNewlyUnlockedBadge(lastUnlocked);
+          setTimeout(() => setNewlyUnlockedBadge(null), 3500);
+        });
+      }
 
       // Sync to API
       if (authSession) {
@@ -747,7 +554,7 @@ export default function App() {
     if (selectedProgram.id.startsWith("plan_")) {
       advancePlanDay();
     }
-  }, [selectedProgram, vibrate, playChime, authSession, advancePlanDay]);
+  }, [selectedProgram, phase, vibrate, playChime, authSession, advancePlanDay, checkBadges]);
 
   // Meditation Timer
   useEffect(() => {
@@ -896,21 +703,7 @@ export default function App() {
     vibrate(50);
     const todayStr = new Date().toDateString();
     setStats((prev) => {
-      let newStreak = prev.streak;
-      let newHistory = [...(prev.history || [])];
-
-      if (prev.lastWorkout !== todayStr) {
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        if (prev.lastWorkout === yesterday.toDateString()) {
-          newStreak += 1;
-        } else if (prev.lastWorkout !== todayStr) {
-          newStreak = 1;
-        }
-        if (!newHistory.includes(todayStr)) {
-          newHistory.push(todayStr);
-        }
-      }
+      const { newStreak, newHistory } = updateStreakAndHistory(prev, todayStr);
 
       const tempStats = {
         ...prev,
@@ -920,10 +713,18 @@ export default function App() {
         history: newHistory,
       };
 
-      const { newBadges } = checkBadges(tempStats);
+      const { newBadges, lastUnlocked } = checkBadges(tempStats);
       tempStats.unlockedBadges = newBadges;
 
       localStorage.setItem("kegel_stats_v4", JSON.stringify(tempStats));
+
+      // Show badge celebration outside of setState
+      if (lastUnlocked) {
+        queueMicrotask(() => {
+          setNewlyUnlockedBadge(lastUnlocked);
+          setTimeout(() => setNewlyUnlockedBadge(null), 3500);
+        });
+      }
 
       // Sync to API
       if (authSession) {
@@ -973,6 +774,18 @@ export default function App() {
       console.error("Logout failed:", err);
     }
   };
+
+  // Memoize ring data (must be before any conditional returns per React hooks rules)
+  const ringData = useMemo(() => {
+    const ringRadius = 45;
+    const ringCircumference = 2 * Math.PI * ringRadius;
+    const ringProgress = Math.min(
+      stats.todayMinutes / (dailyGoal || 5),
+      1,
+    );
+    const ringOffset = ringCircumference - ringProgress * ringCircumference;
+    return { ringRadius, ringCircumference, ringProgress, ringOffset };
+  }, [stats.todayMinutes, dailyGoal]);
 
   // --- Screens ---
 
@@ -1090,7 +903,7 @@ export default function App() {
               )}
             </button>
 
-            <p className="text-center text-xs text-white/40 mt-4 font-sans">
+            <div className="text-center text-xs text-white/40 mt-4 font-sans">
               {authMode === "login" ? "还没有账户？" : "已有账户？"}
               <button
                 onClick={() => {
@@ -1101,7 +914,13 @@ export default function App() {
               >
                 {authMode === "login" ? "立即注册" : "去登录"}
               </button>
-            </p>
+            </div>
+            <button
+              onClick={handleGuestMode}
+              className="w-full text-center text-xs text-white/25 mt-2 font-sans hover:text-white/45 transition-colors py-2"
+            >
+              不登录，先体验一下
+            </button>
           </div>
         </motion.div>
       </div>
@@ -1176,19 +995,7 @@ export default function App() {
   const greeting = getGreeting();
 
   if (currentScreen === "home") {
-    // Generate last 7 days for the history tracker
-    const today = new Date();
-    const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date();
-      d.setDate(today.getDate() - 6 + i);
-      return d;
-    });
-
-    // Daily Ring Progress
-    const ringRadius = 45;
-    const ringCircumference = 2 * Math.PI * ringRadius;
-    const ringProgress = Math.min(stats.todayMinutes / dailyGoal, 1);
-    const ringOffset = ringCircumference - ringProgress * ringCircumference;
+    const { ringRadius, ringCircumference, ringOffset } = ringData;
 
     return (
       <div
@@ -1332,132 +1139,84 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Apple Fitness Style Daily Ring & Duolingo Streak */}
+              {/* Compact stats card: streak + ring side by side */}
               <div
-                className={`${theme.glassClass} rounded-3xl p-6 mb-6 flex flex-col relative overflow-hidden z-10`}
+                className={`${theme.glassClass} rounded-3xl p-5 mb-5 flex items-center justify-between relative overflow-hidden z-10 gap-4`}
               >
-                <div className="flex justify-between items-center mb-6">
-                  <div className="flex flex-col gap-4">
-                    {/* Duolingo Style Streak */}
-                    <div className="flex flex-col gap-1">
-                      <span className="text-white/50 text-xs font-medium flex items-center gap-1.5">
-                        <Flame
-                          className={`w-4 h-4 ${stats.streak > 0 ? "text-orange-500 fill-orange-500" : "text-white/30"}`}
-                        />
-                        连续打卡
-                      </span>
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-serif font-bold text-white/90">
-                          {stats.streak}
-                        </span>
-                        <span className="text-sm font-sans font-normal text-white/40">
-                          天
-                        </span>
-                      </div>
-                      {/* Premium Hook: Streak Freeze */}
-                      <div className="flex items-center gap-1 text-[10px] text-blue-300/70 bg-blue-900/20 px-2 py-0.5 rounded-full w-fit border border-blue-500/20">
-                        <Shield className="w-3 h-3" /> 漏签保护: 0
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1 mt-2">
-                      <span className="text-white/50 text-xs font-medium flex items-center gap-1.5">
-                        <Activity className="w-4 h-4 text-white/40" /> 累计训练
-                      </span>
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-xl font-serif font-bold text-white/90">
-                          {Math.round(stats.totalMinutes)}
-                        </span>
-                        <span className="text-xs font-sans font-normal text-white/40">
-                          分钟
-                        </span>
-                      </div>
+                {/* Left: stats columns */}
+                <div className="flex gap-6">
+                  <div className="flex flex-col justify-center">
+                    <span className="text-white/40 text-[10px] font-medium flex items-center gap-1 mb-1">
+                      <Flame className={`w-3 h-3 ${stats.streak > 0 ? "text-orange-500 fill-orange-500" : "text-white/30"}`} />
+                      连续打卡
+                    </span>
+                    <div className="flex items-baseline gap-0.5">
+                      <span className="text-2xl font-serif font-bold text-white/90">{stats.streak}</span>
+                      <span className="text-xs font-sans text-white/40 ml-0.5">天</span>
                     </div>
                   </div>
-
-                  {/* Apple Fitness Style Ring */}
-                  <div className="relative flex items-center justify-center">
-                    <svg
-                      width="120"
-                      height="120"
-                      className="transform -rotate-90"
-                    >
-                      {/* Background Ring */}
-                      <circle
-                        cx="60"
-                        cy="60"
-                        r={ringRadius}
-                        stroke="rgba(255,255,255,0.05)"
-                        strokeWidth="10"
-                        fill="none"
-                      />
-                      {/* Progress Ring */}
-                      <motion.circle
-                        cx="60"
-                        cy="60"
-                        r={ringRadius}
-                        stroke={theme.ringColor}
-                        strokeWidth="10"
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeDasharray={ringCircumference}
-                        initial={{ strokeDashoffset: ringCircumference }}
-                        animate={{ strokeDashoffset: ringOffset }}
-                        transition={{ duration: 1.5, ease: "easeOut" }}
-                        style={{
-                          filter: `drop-shadow(0 0 6px ${theme.ringColor}80)`,
-                        }}
-                      />
-                    </svg>
-                    <div className="absolute flex flex-col items-center justify-center text-center">
-                      <Target className="w-4 h-4 text-white/40 mb-1" />
-                      <span className="text-xl font-bold text-white leading-none">
-                        {Math.round(stats.todayMinutes)}
-                      </span>
-                      <span className="text-[10px] text-white/50 mt-1">
-                        / {dailyGoal} 分钟
-                      </span>
+                  <div className="flex flex-col justify-center">
+                    <span className="text-white/40 text-[10px] font-medium flex items-center gap-1 mb-1">
+                      <Activity className="w-3 h-3 text-white/30" />
+                      累计训练
+                    </span>
+                    <div className="flex items-baseline gap-0.5">
+                      <span className="text-2xl font-serif font-bold text-white/90">{Math.round(stats.totalMinutes)}</span>
+                      <span className="text-xs font-sans text-white/40 ml-0.5">分钟</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Level Progress */}
-                <div className="pt-4 border-t border-white/5">
-                  <div className="flex justify-between items-center mb-2">
-                    <button
-                      onClick={() => setShowLevelModal(true)}
-                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-white/10 text-white/80 border border-white/10 flex items-center gap-1 hover:bg-white/20 transition-colors"
-                    >
-                      <Crown className="w-3 h-3 text-amber-300" /> Lv.
-                      {userLevel.level} {userLevel.title}
-                    </button>
-                    <span className="font-sans text-[10px] text-white/40">
-                      距下一级还需{" "}
-                      {Math.ceil(userLevel.next - stats.totalMinutes)} 分钟
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                    <motion.div
-                      className="h-full bg-gradient-to-r from-amber-500 to-yellow-300"
-                      initial={{ width: 0 }}
-                      animate={{
-                        width: `${Math.min(100, (stats.totalMinutes / userLevel.next) * 100)}%`,
-                      }}
-                      transition={{ duration: 1 }}
+                {/* Right: daily ring */}
+                <div className="relative flex items-center justify-center flex-shrink-0">
+                  <svg width="96" height="96" className="transform -rotate-90">
+                    <circle cx="48" cy="48" r={ringRadius} stroke="rgba(255,255,255,0.06)" strokeWidth="8" fill="none" />
+                    <motion.circle
+                      cx="48" cy="48" r={ringRadius}
+                      stroke={theme.ringColor}
+                      strokeWidth="8" fill="none" strokeLinecap="round"
+                      strokeDasharray={ringCircumference}
+                      initial={{ strokeDashoffset: ringCircumference }}
+                      animate={{ strokeDashoffset: ringOffset }}
+                      transition={{ duration: 1.5, ease: "easeOut" }}
+                      style={{ filter: `drop-shadow(0 0 5px ${theme.ringColor}80)` }}
                     />
+                  </svg>
+                  <div className="absolute flex flex-col items-center justify-center text-center">
+                    <span className="text-base font-bold text-white leading-none">{Math.round(stats.todayMinutes)}</span>
+                    <span className="text-[9px] text-white/40 mt-0.5">/ {dailyGoal}m</span>
                   </div>
                 </div>
               </div>
 
-              {/* Keep Style Achievement Badges */}
-              <div className="mb-6 z-10">
-                <div className="flex justify-between items-center mb-3">
-                  <h2 className="font-sans text-sm font-bold text-white/80 tracking-widest">
-                    荣誉勋章
-                  </h2>
-                  <span className="text-[10px] text-white/40">
-                    {stats.unlockedBadges.length} / {BADGES.length}
+              {/* Level Progress bar */}
+              <div className={`${theme.glassClass} rounded-2xl px-4 py-3 mb-5 z-10`}>
+                <div className="flex justify-between items-center mb-1.5">
+                  <button
+                    onClick={() => setShowLevelModal(true)}
+                    className="text-[10px] font-bold text-white/70 flex items-center gap-1 hover:text-white/90 transition-colors"
+                  >
+                    <Crown className="w-3 h-3 text-amber-300" /> Lv.{userLevel.level} {userLevel.title}
+                  </button>
+                  <span className="font-sans text-[10px] text-white/30">
+                    距下一级还需 {Math.max(0, Math.ceil(userLevel.next - stats.totalMinutes))} 分钟
                   </span>
+                </div>
+                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full bg-gradient-to-r from-amber-500 to-yellow-300"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${Math.min(100, (stats.totalMinutes / userLevel.next) * 100)}%` }}
+                    transition={{ duration: 1.2, ease: "easeOut" }}
+                  />
+                </div>
+              </div>
+
+              {/* Badges section */}
+              <div className="mb-5 z-10">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="font-sans text-sm font-bold text-white/80 tracking-widest">荣誉勋章</h2>
+                  <span className="text-[10px] text-white/40">{stats.unlockedBadges.length} / {BADGES.length}</span>
                 </div>
                 <div className="flex gap-3 overflow-x-auto hide-scrollbar pb-2">
                   {BADGES.map((badge) => {
@@ -1465,28 +1224,24 @@ export default function App() {
                     return (
                       <div
                         key={badge.id}
-                        className={`flex-shrink-0 w-24 ${theme.glassClass} rounded-2xl p-3 flex flex-col items-center justify-center text-center gap-2 ${isUnlocked ? "" : "opacity-40 grayscale"}`}
+                        className={`flex-shrink-0 w-20 rounded-2xl p-2.5 flex flex-col items-center text-center gap-1.5 relative transition-all duration-300 border ${
+                          isUnlocked
+                            ? "border-white/10"
+                            : "border-white/5 opacity-50"
+                        }`}
+                        style={isUnlocked ? {
+                          backgroundColor: `${theme.primaryColor}10`,
+                          borderColor: `${theme.primaryColor}25`,
+                        } : { background: "rgba(255,255,255,0.03)" }}
                       >
-                        <div
-                          className={`w-10 h-10 rounded-full flex items-center justify-center ${isUnlocked ? "" : "bg-white/5 text-white/30"}`}
-                          style={
-                            isUnlocked
-                              ? {
-                                backgroundColor: `${theme.primaryColor}30`,
-                              }
-                              : {}
-                          }
-                        >
-                          <span className="text-xl">{badge.emoji}</span>
-                        </div>
-                        <div>
-                          <div className="text-[11px] font-bold text-white/90 whitespace-nowrap">
-                            {badge.name}
+                        <span className="text-2xl">{badge.emoji}</span>
+                        <div className="text-[10px] font-semibold text-white/80 leading-tight">{badge.name}</div>
+                        <div className="text-[8px] text-white/40 leading-tight">{badge.desc}</div>
+                        {!isUnlocked && (
+                          <div className="absolute inset-0 rounded-2xl flex items-center justify-center">
+                            <Lock className="w-3 h-3 text-white/20" />
                           </div>
-                          <div className="text-[9px] text-white/50 mt-0.5 leading-tight">
-                            {badge.desc}
-                          </div>
-                        </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1736,12 +1491,15 @@ export default function App() {
                 </button>
 
                 {/* Meditation Card */}
-                <button
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     setMeditationTimeLeft(meditationTime);
                     setMeditationActive(true);
                   }}
-                  className={`w-full text-left ${theme.glassClass} rounded-3xl p-4 flex flex-col relative overflow-hidden group hover:bg-white/[0.06] transition-all duration-300 active:scale-[0.98] border border-purple-500/20 mt-2`}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { setMeditationTimeLeft(meditationTime); setMeditationActive(true); } }}
+                  className={`w-full text-left ${theme.glassClass} rounded-3xl p-4 flex flex-col relative overflow-hidden group hover:bg-white/[0.06] transition-all duration-300 active:scale-[0.98] border border-purple-500/20 mt-2 cursor-pointer select-none`}
                 >
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
@@ -1767,7 +1525,7 @@ export default function App() {
                   <p className="font-sans text-[11px] text-white/50 leading-relaxed">
                     训练后深呼吸放松，跟随4-4-6呼吸节奏，让身心回归平静。
                   </p>
-                </button>
+                </div>
               </div>
 
               {/* Meditation Overlay */}
@@ -1823,8 +1581,10 @@ export default function App() {
                         transition={{ duration: 14, repeat: Infinity, times: [0, 0.286, 0.571, 1] }}
                       >
                         {(() => {
+                          // Use elapsed time from meditationTimeLeft (state-driven, re-renders correctly)
+                          const elapsed = meditationTime - meditationTimeLeft;
                           const cycle = 14; // 4s inhale + 4s hold + 6s exhale
-                          const t = (Date.now() / 1000) % cycle;
+                          const t = elapsed % cycle;
                           if (t < 4) return "吸气";
                           if (t < 8) return "屏息";
                           return "呼气";
@@ -2128,12 +1888,12 @@ export default function App() {
                       <div
                         key={i}
                         className={`aspect-square rounded-full flex items-center justify-center text-sm font-medium transition-all
-                        ${isActive ? `bg-[${theme.primaryColor}] text-black shadow-[0_0_10px_${theme.primaryColor}80]` : "text-white/60 hover:bg-white/5"}
+                        ${isActive ? "text-black" : "text-white/60 hover:bg-white/5"}
                         ${isToday && !isActive ? "border border-white/20" : ""}
                       `}
                         style={
                           isActive
-                            ? { backgroundColor: theme.primaryColor }
+                            ? { backgroundColor: theme.primaryColor, boxShadow: `0 0 10px ${theme.primaryColor}80` }
                             : {}
                         }
                       >
@@ -2478,7 +2238,7 @@ export default function App() {
         </AnimatePresence>
 
         {/* Bottom Navigation Bar */}
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-black/40 backdrop-blur-xl border-t border-white/5 flex items-center justify-around px-6 z-40">
+        <div className="absolute bottom-0 left-0 right-0 h-20 pb-safe bg-black/40 backdrop-blur-xl border-t border-white/5 flex items-center justify-around px-6 z-40">
           <button
             onClick={() => setCurrentTab("training")}
             className={`flex flex-col items-center gap-1 p-2 transition-colors ${currentTab === "training" ? `text-[${theme.primaryColor}]` : "text-white/40 hover:text-white/60"}`}
